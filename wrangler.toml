@@ -1,0 +1,14 @@
+name = "pitbull-prime"
+main = "worker/index.js"
+compatibility_date = "2026-08-17"
+
+[assets]
+directory = "./"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pitbull-prime"
+database_id = "6068d498-f469-449f-9d22-4b1972009db7"
+
+# Configure ADMIN_USER_ID as a Worker secret/variable. Never commit secrets.
