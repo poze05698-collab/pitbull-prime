@@ -34,11 +34,11 @@ async function derive(password, salt) {
 async function hashPassword(password) {
   const salt=new Uint8Array(16); crypto.getRandomValues(salt);
   const hash=await derive(password,salt);
-  return `pbkdf2$120000$${b64url(salt)}$${b64url(hash)}`;
+  return `pbkdf2$100000$${b64url(salt)}$${b64url(hash)}`;
 }
 async function verifyPassword(password, stored) {
   const [scheme,it,saltB,hashB]=String(stored).split("$");
-  if(scheme!=="pbkdf2" || it!=="120000") return false;
+  if(scheme!=="pbkdf2" || it!=="100000") return false;
   const got=await derive(password,fromB64url(saltB));
   const want=fromB64url(hashB);
   if(got.length!==want.length) return false;
