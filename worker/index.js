@@ -28,7 +28,7 @@ function randomToken(n=32) {
 }
 async function derive(password, salt) {
   const key=await crypto.subtle.importKey("raw",enc.encode(password),"PBKDF2",false,["deriveBits"]);
-  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations:120000,hash:"SHA-256"},key,256);
+  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations:100000,hash:"SHA-256"},key,256);
   return new Uint8Array(bits);
 }
 async function hashPassword(password) {
