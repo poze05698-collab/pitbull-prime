@@ -332,16 +332,19 @@ async function loadVIP(){
 document.addEventListener("DOMContentLoaded",loadVIP);
 
 async function loadSecurityStatus(){
- const box=document.getElementById("securityEvents"),status=document.getElementById("securityStatus");
- if(!box)return;
- try{
-  const d=await fetch("/api/security/status",{credentials:"include"}).then(r=>r.json());
-  if(!d.ok)throw new Error(d.error||"Erro");
-  status.textContent=d.status==="active"?"🟢 Proteção ativa":"⚠️ "+d.status;
-  const events=d.events||[];
-  box.innerHTML=events.length?events.map(e=>`<div class="security-event"><b>${escText(e.event_type)}</b><span>Risco ${e.risk_score}/100 • ${escText(e.action)}</span><small>${escText(e.created_at)}</small></div>`).join(""):"Nenhum evento de segurança recente.";
- }catch(e){box.textContent="Proteção ativa.")}
+  const box=document.getElementById("securityEvents"),status=document.getElementById("securityStatus");
+  if(!box)return;
+  try{
+    const d=await fetch("/api/security/status",{credentials:"include"}).then(r=>r.json());
+    if(!d.ok)throw new Error(d.error||"Erro");
+    status.textContent=d.status==="active"?"🟢 Proteção ativa":"⚠️ "+d.status;
+    const events=d.events||[];
+    box.innerHTML=events.length?events.map(e=>`<div class="security-event"><b>${escText(e.event_type)}</b><span>Risco ${e.risk_score}/100 • ${escText(e.action)}</span><small>${escText(e.created_at)}</small></div>`).join(""):"Nenhum evento de segurança recente.";
+  }catch(e){
+    box.textContent="Proteção ativa.";
+  }
 }
+
 document.addEventListener("DOMContentLoaded",loadSecurityStatus);
 
 function moneyBR(c){return "R$ "+(Number(c||0)/100).toFixed(2).replace(".",",")}
