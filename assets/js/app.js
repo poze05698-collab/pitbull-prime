@@ -49,70 +49,164 @@ document.addEventListener('DOMContentLoaded',()=>{loadDashboard();loadGames()});
 
 async function showVip(){
   const panel=document.getElementById('vipPanel');
+  const info=document.getElementById('vipInfo');
+  const status=document.getElementById('vipStatus');
+  const support=document.getElementById('vipSupport');
+
   if(!panel)return;
 
   panel.hidden=false;
+  panel.style.position='relative';
 
-  // Criar botão X para fechar
-  if(!document.getElementById('closeVip')){
-    const close=document.createElement('button');
+  let close=document.getElementById('closeVip');
+
+  if(!close){
+    close=document.createElement('button');
     close.id='closeVip';
     close.type='button';
+    close.setAttribute('aria-label','Fechar VIP');
     close.textContent='✕';
 
-    close.style.position='absolute';
-    close.style.top='12px';
-    close.style.right='12px';
-    close.style.width='36px';
-    close.style.height='36px';
-    close.style.border='none';
-    close.style.borderRadius='50%';
-    close.style.background='#222';
-    close.style.color='#fff';
-    close.style.fontSize='20px';
-    close.style.fontWeight='bold';
-    close.style.cursor='pointer';
-    close.style.zIndex='9999';
+    close.style.cssText=[
+      'position:absolute',
+      'top:10px',
+      'right:10px',
+      'width:38px',
+      'height:38px',
+      'padding:0',
+      'border:0',
+      'border-radius:50%',
+      'background:#222',
+      'color:#fff',
+      'font-size:20px',
+      'font-weight:700',
+      'line-height:38px',
+      'text-align:center',
+      'cursor:pointer',
+      'z-index:10000',
+      'display:flex',
+      'align-items:center',
+      'justify-content:center'
+    ].join(';');
 
-    close.onclick=()=>{
-      panel.hidden=true;
-    };
-
-    panel.style.position='relative';
+    close.addEventListener('click',closeVip);
     panel.appendChild(close);
   }
 
-  const r=await fetch('/api/vip',{credentials:'include'});
-  const d=await r.json();
+  if(info)info.textContent='Carregando informações do VIP...';
+  if(status)status.textContent='Carregando...';
 
-  const info=document.getElementById('vipInfo');
+  try{
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),10000);
 
-  if(!r.ok){
-    info.textContent='❌ '+(d.error||'Erro');
-    return;
+    const response=await fetch('/api/vip',{
+      credentials:'include',
+      signal:controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    let data={};
+    try{
+      data=await response.json();
+    }catch{
+      throw new Error('Resposta inválida do servidor.');
+    }
+
+    if(!response.ok || data.ok===false){
+      throw new Error(data.error||'Não foi possível carregar o VIP.');
+    }
+
+    const settings=data.settings||{};
+
+    const priceCents=Number(
+      data.price_cents ??
+      settings.price_cents ??
+      0
+    );
+
+    const durationDays=Number(
+      data.duration_days ??
+      settings.duration_days ??
+      0
+    );
+
+    const vipUntil=data.vip_until||null;
+
+    const active=Boolean(
+      data.active===true ||
+      (
+        data.plan==='VIP' &&
+        vipUntil &&
+        new Date(vipUntil).getTime()>Date.now()
+      )
+    );
+
+    const benefits=Array.isArray(data.benefits) && data.benefits.length
+      ? data.benefits
+      : [
+          {title:'🎰 Roleta',description:'2 giros de roleta por dia.'},
+          {title:'🎫 Raspadinhas',description:'2 raspadinhas por dia.'},
+          {title:'🍀 Benefícios VIP',description:'Mais benefícios conforme as regras da plataforma.'}
+        ];
+
+    if(status){
+      status.textContent=active
+        ? `👑 VIP ativo até ${new Date(vipUntil).toLocaleDateString('pt-BR')}`
+        : '🆓 Plano FREE';
+    }
+
+    if(info){
+      info.innerHTML=`
+        <div class="vip-price">
+          R$ ${(priceCents/100).toFixed(2).replace('.',',')}
+          ${durationDays>0?` / ${durationDays} dias`:''}
+        </div>
+        <div class="vip-benefits">
+          ${benefits.map(b=>`
+            <div class="vip-benefit">
+              <b>${escText(b.title||'Benefício VIP')}</b>
+              <p>${escText(b.description||'')}</p>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    if(support){
+      const supportUrl=data.support_url||settings.support_url||window.SUPPORT_URL||'#';
+      support.href=supportUrl;
+      support.textContent=active
+        ? '💬 Renovar VIP pelo suporte'
+        : '💬 Adquirir VIP pelo suporte';
+    }
+  }catch(error){
+    if(error.name==='AbortError'){
+      if(info)info.textContent='❌ O servidor demorou para responder. Tente novamente.';
+    }else{
+      if(info)info.textContent='❌ '+(error.message||'Não foi possível carregar o VIP.');
+    }
+    if(status)status.textContent='VIP indisponível';
   }
-
-  const active=d.plan==='VIP' && d.vip_until && d.vip_until>new Date().toISOString();
-
-  document.getElementById('vipStatus').textContent=
-    active
-      ? `VIP ativo até ${new Date(d.vip_until).toLocaleDateString('pt-BR')}`
-      : `R$ ${(d.price_cents/100).toFixed(2).replace('.',',')} / ${d.duration_days} dias`;
-
-  info.innerHTML=
-    `<b>${active?'Seu VIP está ativo.':'Plano VIP'}</b>
-    <br><br>
-    💰 R$ ${(d.price_cents/100).toFixed(2).replace('.',',')} / ${d.duration_days} dias
-    <br><br>
-    🎰 2 giros de roleta por dia
-    <br>
-    🎫 2 raspadinhas por dia
-    <br>
-    🍀 Mais benefícios conforme as regras da plataforma
-    <br><br>
-    🆘 Aquisição: fale com o suporte.`;
 }
-function closeVip(){const p=document.getElementById('vipPanel');if(p)p.hidden=true}
+
+function closeVip(){
+  const panel=document.getElementById('vipPanel');
+  if(panel)panel.hidden=true;
+}
+
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){
+    const panel=document.getElementById('vipPanel');
+    if(panel&&!panel.hidden)closeVip();
+  }
+});
+
+window.showVip=showVip;
+window.closeVip=closeVip;
+window.loadVIP=showVip;
+
 async function redeemVip(){
   const code=prompt('Digite seu código VIP:'); if(!code)return;
   const r=await fetch('/api/vip/redeem',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({code})});
@@ -121,20 +215,6 @@ async function redeemVip(){
   alert('✅ VIP ativado até '+new Date(d.vip_until).toLocaleDateString('pt-BR'));closeVip();loadDashboard();loadGames();
 }
 
-function moneyBR(c){return "R$ "+(Number(c||0)/100).toFixed(2).replace(".",",")}
-async function loadWallet(){
-  const info=document.getElementById('walletInfo');if(!info)return;
-  try{
-    const [w,wd]=await Promise.all([
-      fetch('/api/wallet',{credentials:'include'}).then(r=>r.json()),
-      fetch('/api/withdrawals',{credentials:'include'}).then(r=>r.json())
-    ]);
-    if(!w.ok)throw new Error(w.error||'Erro');
-    info.textContent=`Saldo disponível: ${moneyBR(w.balance_cents)} • Pendente: ${moneyBR(w.pending_withdrawal_cents)}`;
-    const box=document.getElementById('withdrawals');
-    box.innerHTML=(wd.withdrawals||[]).map(x=>`<div class="ref-box">💸 #${x.id} • ${moneyBR(x.amount_cents)} • ${x.status}<br><small>${new Date(x.created_at.replace(' ','T')+'Z').toLocaleString('pt-BR')}</small></div>`).join('');
-  }catch(e){info.textContent='❌ '+e.message}
-}
 async function requestWithdrawal(){
   const value=prompt('Valor do saque em R$ (mínimo configurado pelo admin):');if(value===null)return;
   const n=Number(value.replace(',','.'));if(!Number.isFinite(n)||n<=0){alert('Valor inválido.');return}
@@ -143,16 +223,8 @@ async function requestWithdrawal(){
   const r=await fetch('/api/withdrawals',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({amount_cents:Math.round(n*100),pix_key:pix,pix_type:type})});
   const d=await r.json();alert(r.ok?'✅ '+d.message:'❌ '+(d.error||'Erro'));loadWallet();loadDashboard();
 }
-document.addEventListener('DOMContentLoaded',loadWallet);
 
 function ticketStatus(s){return s==="open"?"🟢 Aberto":s==="pending"?"🟡 Aguardando":"⚪ Fechado"}
-async function loadTickets(){
- const box=document.getElementById("tickets");if(!box)return;
- try{const d=await fetch("/api/tickets",{credentials:"include"}).then(r=>r.json());
-  if(!d.ok)throw new Error(d.error||"Erro");
-  box.innerHTML=(d.tickets||[]).map(t=>`<div class="ref-box"><b>#${t.id} ${escText(t.subject)}</b><br>${ticketStatus(t.status)} • ${t.priority}<br><button class="btn" onclick="openTicket(${t.id})">Abrir conversa</button></div>`).join("")||"<p>Nenhum chamado.</p>";
- }catch(e){box.textContent="❌ "+e.message}
-}
 function escText(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 async function newTicket(){
  const subject=prompt("Assunto do chamado:");if(!subject)return;
@@ -160,21 +232,6 @@ async function newTicket(){
  const r=await fetch("/api/tickets",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({subject,message,priority:"normal"})});
  const d=await r.json();alert(r.ok?"✅ "+d.message:"❌ "+(d.error||"Erro"));loadTickets();
 }
-async function openTicket(id){
- const d=await fetch("/api/tickets/"+id,{credentials:"include"}).then(r=>r.json());
- if(!d.ok){alert("❌ "+d.error);return}
- let text=`#${id} — ${d.ticket.subject}\n\n`;
- for(const m of d.messages)text+=`${m.sender_type==="admin"?"👑 Admin":"👤 Você"}: ${m.message}\n\n`;
- alert(text);
- if(d.ticket.status!=="closed"){
-  const msg=prompt("Enviar nova mensagem (Cancelar para fechar):");
-  if(msg){
-   const r=await fetch("/api/tickets/"+id+"/messages",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({message:msg})});
-   const x=await r.json();alert(r.ok?"✅ "+x.message:"❌ "+(x.error||"Erro"));loadTickets();
-  }
- }
-}
-document.addEventListener("DOMContentLoaded",loadTickets);
 
 async function checkPlatformStatus(){
   try{
@@ -192,25 +249,10 @@ async function checkPlatformStatus(){
 }
 document.addEventListener("DOMContentLoaded",checkPlatformStatus);
 
-async function loadNotifications(){
- const box=document.getElementById("notifications");if(!box)return;
- try{
-  const d=await fetch("/api/notifications",{credentials:"include"}).then(r=>r.json());
-  if(!d.ok)throw new Error(d.error||"Erro");
-  const badge=document.getElementById("notifBadge");
-  if(badge)badge.textContent=d.unread?`(${d.unread})`:"";
-  box.innerHTML=(d.notifications||[]).map(n=>`<div class="ref-box ${n.read_at?"":"unread"}" onclick="readNotification(${n.id})"><b>${escText(n.title)}</b><br>${escText(n.message)}<small>${new Date(n.created_at.replace(' ','T')+'Z').toLocaleString('pt-BR')}</small></div>`).join("")||"<p>Nenhuma notificação.</p>";
- }catch(e){box.textContent="❌ "+e.message}
-}
 async function readNotification(id){
  await fetch("/api/notifications/read",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({id})});
  loadNotifications();
 }
-async function markAllNotifications(){
- await fetch("/api/notifications/read",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({all:true})});
- loadNotifications();
-}
-document.addEventListener("DOMContentLoaded",loadNotifications);
 
 async function loadOverview(){
  const box=document.getElementById("overviewStats");if(!box)return;
@@ -222,15 +264,6 @@ async function loadOverview(){
   const rank=document.getElementById("myRank");if(rank)rank.innerHTML=`🏆 Sua posição: <b>${s.ranking_position||"—"}</b>`;
  }catch(e){box.textContent="❌ "+e.message}
 }
-async function loadRanking(){
- const box=document.getElementById("rankingList");if(!box)return;
- try{
-  const d=await fetch("/api/ranking",{credentials:"include"}).then(r=>r.json());
-  if(!d.ok)throw new Error(d.error||"Erro");
-  box.innerHTML=d.ranking.map(u=>`<div class="user-row"><div><b>${u.position<=3?["🥇","🥈","🥉"][u.position-1]:"🏅"} #${u.position} ${escText(u.name)}</b><small>${u.plan==="VIP"?"💎 VIP":"FREE"} • ⭐ ${u.xp} XP • 👥 ${u.referral_code}</small></div><strong>${u.xp} XP</strong></div>`).join("")||"Nenhum participante.";
- }catch(e){box.textContent="❌ "+e.message}
-}
-document.addEventListener("DOMContentLoaded",()=>{loadOverview();loadRanking()});
 
 async function loadReferralSummary(){
  const box=document.getElementById("referralBox");if(!box)return;
@@ -368,23 +401,6 @@ async function deleteNotification(id){
 }
 document.addEventListener("DOMContentLoaded",loadNotifications);
 
-async function loadVIP(){
- const box=document.getElementById("vipInfo"),status=document.getElementById("vipStatus"),support=document.getElementById("vipSupport");
- if(!box)return;
- try{
-  const d=await fetch("/api/vip",{credentials:"include"}).then(r=>r.json());
-  if(!d.ok)throw new Error(d.error||"Erro");
-  const s=d.settings||{};
-  status.textContent=d.active?`👑 VIP ativo até ${escText(d.vip_until)}`:"Plano FREE";
-  box.innerHTML=`<div class="vip-price">R$ ${(Number(s.price_cents||0)/100).toFixed(2).replace(".",",")} / ${s.duration_days} dias</div><div class="vip-benefits">${(d.benefits||[]).map(b=>`<div class="vip-benefit"><b>${escText(b.title)}</b><p>${escText(b.description)}</p></div>`).join("")}</div>`;
-  if(support){
-    const base=window.SUPPORT_URL||"#";
-    support.href=base;
-    support.textContent=d.active?"💬 Renovar VIP pelo suporte":"💬 Adquirir VIP pelo suporte";
-  }
- }catch(e){box.textContent="❌ "+e.message}
-}
-document.addEventListener("DOMContentLoaded",loadVIP);
 
 async function loadSecurityStatus(){
   const box=document.getElementById("securityEvents"),status=document.getElementById("securityStatus");
