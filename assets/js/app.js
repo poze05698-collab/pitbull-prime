@@ -48,14 +48,69 @@ async function play(game){
 document.addEventListener('DOMContentLoaded',()=>{loadDashboard();loadGames()});
 
 async function showVip(){
-  const panel=document.getElementById('vipPanel'); if(!panel)return;
+  const panel=document.getElementById('vipPanel');
+  if(!panel)return;
+
   panel.hidden=false;
-  const r=await fetch('/api/vip',{credentials:'include'});const d=await r.json();
+
+  // Criar botão X para fechar
+  if(!document.getElementById('closeVip')){
+    const close=document.createElement('button');
+    close.id='closeVip';
+    close.type='button';
+    close.textContent='✕';
+
+    close.style.position='absolute';
+    close.style.top='12px';
+    close.style.right='12px';
+    close.style.width='36px';
+    close.style.height='36px';
+    close.style.border='none';
+    close.style.borderRadius='50%';
+    close.style.background='#222';
+    close.style.color='#fff';
+    close.style.fontSize='20px';
+    close.style.fontWeight='bold';
+    close.style.cursor='pointer';
+    close.style.zIndex='9999';
+
+    close.onclick=()=>{
+      panel.hidden=true;
+    };
+
+    panel.style.position='relative';
+    panel.appendChild(close);
+  }
+
+  const r=await fetch('/api/vip',{credentials:'include'});
+  const d=await r.json();
+
   const info=document.getElementById('vipInfo');
-  if(!r.ok){info.textContent='❌ '+(d.error||'Erro');return}
+
+  if(!r.ok){
+    info.textContent='❌ '+(d.error||'Erro');
+    return;
+  }
+
   const active=d.plan==='VIP' && d.vip_until && d.vip_until>new Date().toISOString();
-  document.getElementById('vipStatus').textContent=active?`VIP ativo até ${new Date(d.vip_until).toLocaleDateString('pt-BR')}`:`R$ ${(d.price_cents/100).toFixed(2).replace('.',',')} / ${d.duration_days} dias`;
-  info.innerHTML=`<b>${active?'Seu VIP está ativo.':'Plano VIP'}</b><br><br>💰 R$ ${(d.price_cents/100).toFixed(2).replace('.',',')} / ${d.duration_days} dias<br><br>🎰 2 giros de roleta por dia<br>🎫 2 raspadinhas por dia<br>🍀 Mais benefícios conforme as regras da plataforma<br><br>🆘 Aquisição: fale com o suporte.`;
+
+  document.getElementById('vipStatus').textContent=
+    active
+      ? `VIP ativo até ${new Date(d.vip_until).toLocaleDateString('pt-BR')}`
+      : `R$ ${(d.price_cents/100).toFixed(2).replace('.',',')} / ${d.duration_days} dias`;
+
+  info.innerHTML=
+    `<b>${active?'Seu VIP está ativo.':'Plano VIP'}</b>
+    <br><br>
+    💰 R$ ${(d.price_cents/100).toFixed(2).replace('.',',')} / ${d.duration_days} dias
+    <br><br>
+    🎰 2 giros de roleta por dia
+    <br>
+    🎫 2 raspadinhas por dia
+    <br>
+    🍀 Mais benefícios conforme as regras da plataforma
+    <br><br>
+    🆘 Aquisição: fale com o suporte.`;
 }
 function closeVip(){const p=document.getElementById('vipPanel');if(p)p.hidden=true}
 async function redeemVip(){
