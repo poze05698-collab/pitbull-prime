@@ -26,9 +26,9 @@ function fromB64url(s) {
 function randomToken(n=32) {
   const b=new Uint8Array(n); crypto.getRandomValues(b); return b64url(b);
 }
-async function derive(password, salt) {
+async function derive(password, salt, iterations=100000) {
   const key=await crypto.subtle.importKey("raw",enc.encode(password),"PBKDF2",false,["deriveBits"]);
-  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations:100000,hash:"SHA-256"},key,256);
+  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt,iterations,hash:"SHA-256"},key,256);
   return new Uint8Array(bits);
 }
 async function hashPassword(password) {
@@ -38,8 +38,9 @@ async function hashPassword(password) {
 }
 async function verifyPassword(password, stored) {
   const [scheme,it,saltB,hashB]=String(stored).split("$");
-  if(scheme!=="pbkdf2" || it!=="100000") return false;
-  const got=await derive(password,fromB64url(saltB));
+  const iterations=Number(it);
+  if(scheme!=="pbkdf2" || ![100000,120000].includes(iterations) || !saltB || !hashB) return false;
+  const got=await derive(password,fromB64url(saltB),iterations);
   const want=fromB64url(hashB);
   if(got.length!==want.length) return false;
   let diff=0; for(let i=0;i<got.length;i++) diff|=got[i]^want[i];
@@ -166,33 +167,43 @@ async function api(request, env) {
 
       const userId=result.meta.last_row_id;
 
-      const ip=request.headers.get("CF-Connecting-IP")||request.headers.get("X-Forwarded-For")||"unknown";
-      const ua=request.headers.get("User-Agent")||"unknown";
-      await env.DB.prepare(
-        "INSERT OR REPLACE INTO referral_security(user_id,ip_hash,ua_hash,risk_level,risk_reason) VALUES(?,?,?,?,?)"
-      ).bind(userId,await sha256Hex(ip),await sha256Hex(ua),"low",null).run();
+      // A conta já foi criada. Operações auxiliares (antifraude/indicação/auditoria)
+      // não podem transformar um cadastro válido em "Erro interno do servidor".
+      try {
+        const ip=request.headers.get("CF-Connecting-IP")||request.headers.get("X-Forwarded-For")||"unknown";
+        const ua=request.headers.get("User-Agent")||"unknown";
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO referral_security(user_id,ip_hash,ua_hash,risk_level,risk_reason) VALUES(?,?,?,?,?)"
+        ).bind(userId,await sha256Hex(ip),await sha256Hex(ua),"low",null).run();
 
-      if(referrer) {
-        const risk=await referralRisk(env,referrer.id,userId,request);
-        const event=await env.DB.prepare(
-          "INSERT INTO referral_events(referrer_id,referred_user_id,status,reason) VALUES(?,?,?,?)"
-        ).bind(referrer.id,userId,"pending",risk.reason).run();
+        if(referrer) {
+          const risk=await referralRisk(env,referrer.id,userId,request);
+          const event=await env.DB.prepare(
+            "INSERT INTO referral_events(referrer_id,referred_user_id,status,reason) VALUES(?,?,?,?)"
+          ).bind(referrer.id,userId,"pending",risk.reason).run();
 
-        if(risk.level!=="low"){
-          await env.DB.prepare(
-            "UPDATE referral_security SET risk_level=?,risk_reason=? WHERE user_id=?"
-          ).bind(risk.level,risk.reason,userId).run();
+          if(risk.level!=="low"){
+            await env.DB.prepare(
+              "UPDATE referral_security SET risk_level=?,risk_reason=? WHERE user_id=?"
+            ).bind(risk.level,risk.reason,userId).run();
 
-          await env.DB.prepare(
-            "INSERT INTO referral_risk_events(referral_id,referrer_id,referred_user_id,risk_level,reason) VALUES(?,?,?,?,?)"
-          ).bind(event.meta.last_row_id,referrer.id,userId,risk.level,risk.reason).run();
+            await env.DB.prepare(
+              "INSERT INTO referral_risk_events(referral_id,referrer_id,referred_user_id,risk_level,reason) VALUES(?,?,?,?,?)"
+            ).bind(event.meta.last_row_id,referrer.id,userId,risk.level,risk.reason).run();
+          }
         }
+      } catch(e) {
+        console.error("REGISTER_AUX_ERROR",String(e));
       }
 
       const session=await makeSession(userId,env.SESSION_SECRET);
-      await env.DB.prepare(
-        "INSERT INTO audit_logs(actor_user_id,action,target_user_id,details) VALUES(?,?,?,?)"
-      ).bind(userId,"register",userId,referrer?`ref=${ref}`:null).run();
+      try {
+        await env.DB.prepare(
+          "INSERT INTO audit_logs(actor_user_id,action,target_user_id,details) VALUES(?,?,?,?)"
+        ).bind(userId,"register",userId,referrer?`ref=${ref}`:null).run();
+      } catch(e) {
+        console.error("REGISTER_AUDIT_ERROR",String(e));
+      }
 
       return json({ok:true,user:{id:userId,name,email,plan:"FREE"}},200,{
         ...cors,"Set-Cookie":cookie(session)
@@ -534,31 +545,6 @@ async function api(request, env) {
       return json({ok:true,message:"Prêmio atualizado."},200,cors);
     }
 
-
-    if(url.pathname==="/api/vip" && request.method==="GET") {
-      const id=await readSession(request,env);
-      if(!id) return json({ok:false,error:"Não autenticado."},401,cors);
-      const user=await env.DB.prepare(
-        "SELECT id,plan,vip_until FROM users WHERE id=? AND status='active'"
-      ).bind(id).first();
-      if(!user) return json({ok:false,error:"Conta indisponível."},403,cors);
-      const price=await env.DB.prepare("SELECT value FROM settings WHERE key='vip_price_cents'").first();
-      const duration=await env.DB.prepare("SELECT value FROM settings WHERE key='vip_duration_days'").first();
-      return json({
-        ok:true,
-        plan:user.plan,
-        vip_until:user.vip_until,
-        price_cents:Number(price?.value||999),
-        duration_days:Number(duration?.value||30),
-        benefits:[
-          "2 giros de roleta por dia",
-          "2 raspadinhas por dia",
-          "Mais benefícios e chances conforme as regras da plataforma",
-          "Acesso aos recursos VIP enquanto a assinatura estiver ativa"
-        ],
-        purchase_method:"support"
-      },200,cors);
-    }
 
     if(url.pathname==="/api/vip/redeem" && request.method==="POST") {
       const id=await readSession(request,env);
@@ -1813,7 +1799,7 @@ if(url.pathname==="/api/withdrawals" && request.method==="GET") {
 
     if(url.pathname==="/api/system/status" && request.method==="GET"){
       const maintenance=(await platformSetting("maintenance_enabled","0"))==="1";
-      const message=await platformSetting("maintenance_message","Sistema em manutenção. Voltaremos em breve.");
+      const message=await platformSetting(env,"maintenance_message","Sistema em manutenção. Voltaremos em breve.");
       return json({ok:true,maintenance,message},200,cors);
     }
 
@@ -2538,38 +2524,22 @@ if(url.pathname==="/api/withdrawals" && request.method==="GET") {
     }
 
     async function rankingRows(env,period){
-  const key=rankingKey(period);
-  let where="";
+      const key=rankingKey(period);
+      let where="";
+      if(period==="daily") where="date(x.created_at)=date('now')";
+      else if(period==="monthly") where="strftime('%Y-%m',x.created_at)=strftime('%Y-%m','now')";
+      else where="strftime('%Y-%W',x.created_at)=strftime('%Y-%W','now')";
 
-  if(period==="daily"){
-    where="date(x.created_at)=date('now')";
-  }else if(period==="monthly"){
-    where="strftime('%Y-%m',x.created_at)=strftime('%Y-%m','now')";
-  }else{
-    where="strftime('%Y-%W',x.created_at)=strftime('%Y-%W','now')";
-  }
-
-  const rows=await env.DB.prepare(`
-    SELECT
-      x.user_id,
-      u.name,
-      u.plan,
-      u.referral_code,
-      COALESCE(SUM(x.xp),0) AS xp
-    FROM xp_events x
-    JOIN users u ON u.id=x.user_id
-    WHERE ${where}
-      AND u.status='active'
-    GROUP BY x.user_id
-    ORDER BY xp DESC,u.id ASC
-    LIMIT 100
-  `).all();
-
-  return {
-    key,
-    rows:rows.results||[]
-  };
-}
+      const rows=await env.DB.prepare(`
+        SELECT x.user_id,u.name,u.username,COALESCE(SUM(x.xp),0) score
+        FROM xp_events x JOIN users u ON u.id=x.user_id
+        WHERE ${where} AND u.status='active'
+        GROUP BY x.user_id
+        ORDER BY score DESC,u.id ASC
+        LIMIT 100
+      `).all();
+      return {key,rows:rows.results||[]};
+    }
 
 
     if(url.pathname==="/api/notifications" && request.method==="GET"){
@@ -3185,7 +3155,7 @@ if(url.pathname==="/api/withdrawals" && request.method==="GET") {
 
     return json({ok:false,error:"Rota não encontrada."},404,cors);
   } catch(e) {
-    console.error(e);
+    console.error("API_UNHANDLED_ERROR",String(e));
     return json({ok:false,error:"Erro interno do servidor."},500,cors);
   }
 }
