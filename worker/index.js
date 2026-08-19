@@ -2538,22 +2538,38 @@ if(url.pathname==="/api/withdrawals" && request.method==="GET") {
     }
 
     async function rankingRows(env,period){
-      const key=rankingKey(period);
-      let where="";
-      if(period==="daily") where="date(x.created_at)=date('now')";
-      else if(period==="monthly") where="strftime('%Y-%m',x.created_at)=strftime('%Y-%m','now')";
-      else where="strftime('%Y-%W',x.created_at)=strftime('%Y-%W','now')";
+  const key=rankingKey(period);
+  let where="";
 
-      const rows=await env.DB.prepare(`
-        SELECT x.user_id,u.name,u.username,COALESCE(SUM(x.xp),0) score
-        FROM xp_events x JOIN users u ON u.id=x.user_id
-        WHERE ${where} AND u.status='active'
-        GROUP BY x.user_id
-        ORDER BY score DESC,u.id ASC
-        LIMIT 100
-      `).all();
-      return {key,rows:rows.results||[]};
-    }
+  if(period==="daily"){
+    where="date(x.created_at)=date('now')";
+  }else if(period==="monthly"){
+    where="strftime('%Y-%m',x.created_at)=strftime('%Y-%m','now')";
+  }else{
+    where="strftime('%Y-%W',x.created_at)=strftime('%Y-%W','now')";
+  }
+
+  const rows=await env.DB.prepare(`
+    SELECT
+      x.user_id,
+      u.name,
+      u.plan,
+      u.referral_code,
+      COALESCE(SUM(x.xp),0) AS xp
+    FROM xp_events x
+    JOIN users u ON u.id=x.user_id
+    WHERE ${where}
+      AND u.status='active'
+    GROUP BY x.user_id
+    ORDER BY xp DESC,u.id ASC
+    LIMIT 100
+  `).all();
+
+  return {
+    key,
+    rows:rows.results||[]
+  };
+}
 
 
     if(url.pathname==="/api/notifications" && request.method==="GET"){
