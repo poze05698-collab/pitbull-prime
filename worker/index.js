@@ -1813,7 +1813,7 @@ if(url.pathname==="/api/withdrawals" && request.method==="GET") {
 
     if(url.pathname==="/api/system/status" && request.method==="GET"){
       const maintenance=(await platformSetting("maintenance_enabled","0"))==="1";
-      const message=await platformSetting(env,"maintenance_message","Sistema em manutenção. Voltaremos em breve.");
+      const message=await platformSetting("maintenance_message","Sistema em manutenção. Voltaremos em breve.");
       return json({ok:true,maintenance,message},200,cors);
     }
 
